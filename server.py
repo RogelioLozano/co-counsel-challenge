@@ -1,6 +1,7 @@
 import json
 import asyncio
 import uuid
+from dataclasses import dataclass, asdict
 from typing import Set, Literal
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -25,6 +26,53 @@ CONVERSATION_DEFAULT: ConversationId = "default"
 EVENT_TYPE_USER_MESSAGE: EventType = "user_message"
 EVENT_TYPE_AI_RESPONSE: EventType = "ai_response"
 EVENT_TYPE_AI_REQUEST: EventType = "ai_request"
+
+
+# Domain models
+@dataclass
+class User:
+    """Represents a user in the chat system"""
+    user_id: str
+    username: str
+
+
+@dataclass
+class Message:
+    """Represents a message in the chat system"""
+    sender_id: str
+    sender_name: str
+    text: str
+    msg_type: MessageType = MESSAGE_TYPE_USER
+    conversation_id: ConversationId = CONVERSATION_DEFAULT
+
+
+@dataclass
+class UserMessageEvent:
+    """Event: A user sends a message"""
+    type: EventType = EVENT_TYPE_USER_MESSAGE
+    user_id: str = ""
+    sender: str = ""
+    text: str = ""
+    sender_ws: WebSocket | None = None
+
+
+@dataclass
+class AIRequestEvent:
+    """Event: AI processing requested"""
+    type: EventType = EVENT_TYPE_AI_REQUEST
+    user_id: str = ""
+    sender: str = ""
+    text: str = ""
+    sender_ws: WebSocket | None = None
+
+
+@dataclass
+class AIResponseEvent:
+    """Event: AI response ready"""
+    type: EventType = EVENT_TYPE_AI_RESPONSE
+    text: str = ""
+    original_message: str = ""
+    detected_intent: str = ""
 
 # Set to store connected clients
 connected_clients: Set[WebSocket] = set()
@@ -163,17 +211,17 @@ class ChatDatabase:
             # User already in conversation
             pass
     
-    async def save_message(self, sender_id: str, sender_name: str, text: str, msg_type: str = MESSAGE_TYPE_USER, conversation_id: str = CONVERSATION_DEFAULT) -> None:
+    async def save_message(self, message: Message) -> None:
         """Save message to database in a conversation"""
         assert self.conn is not None
         await self.conn.execute(
             "INSERT INTO messages (conversation_id, sender_id, sender_name, text, message_type) VALUES (?, ?, ?, ?, ?)",
-            (conversation_id, sender_id, sender_name, text, msg_type)
+            (message.conversation_id, message.sender_id, message.sender_name, message.text, message.msg_type)
         )
         # Update conversation updated_at timestamp
         await self.conn.execute(
             "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE conversation_id = ?",
-            (conversation_id,)
+            (message.conversation_id,)
         )
         await self.conn.commit()
     
@@ -202,9 +250,11 @@ class EventPublisher:
     def __init__(self, queue: asyncio.Queue[dict]) -> None:
         self.queue = queue
     
-    async def publish(self, event: dict) -> None:
-        """Publish an event to the queue"""
-        await self.queue.put(event)
+    async def publish(self, event: UserMessageEvent | AIRequestEvent | AIResponseEvent | dict) -> None:
+        """Publish an event to the queue (accepts dataclass or dict)"""
+        # Convert dataclass to dict if needed
+        event_dict: dict = asdict(event) if isinstance(event, (UserMessageEvent, AIRequestEvent, AIResponseEvent)) else event
+        await self.queue.put(event_dict)
 
 
 class EventConsumer:
@@ -238,7 +288,14 @@ class EventConsumer:
         text: str = event.get("text", "")
         
         if user_id and sender:
-            await self.db.save_message(user_id, sender, text, MESSAGE_TYPE_USER, CONVERSATION_DEFAULT)
+            message = Message(
+                sender_id=user_id,
+                sender_name=sender,
+                text=text,
+                msg_type=MESSAGE_TYPE_USER,
+                conversation_id=CONVERSATION_DEFAULT
+            )
+            await self.db.save_message(message)
         
         broadcast_message: str = json.dumps({
             "sender": sender,
@@ -260,7 +317,14 @@ class EventConsumer:
         try:
             text: str = event.get("text", "")
             ai_user_id = await self.db.get_or_create_user("AIBot")
-            await self.db.save_message(ai_user_id, "AIBot", text, MESSAGE_TYPE_AI_RESPONSE, CONVERSATION_DEFAULT)
+            message = Message(
+                sender_id=ai_user_id,
+                sender_name="AIBot",
+                text=text,
+                msg_type=MESSAGE_TYPE_AI_RESPONSE,
+                conversation_id=CONVERSATION_DEFAULT
+            )
+            await self.db.save_message(message)
         except Exception as e:
             print(f"Error saving AI response to database: {e}")
         
@@ -344,19 +408,19 @@ class MockedAIAgent:
             print(f"AI response: {ai_response}")
             
             # Publish AI response event
-            response_event: dict = {
-                "type": EVENT_TYPE_AI_RESPONSE,
-                "text": ai_response,
-                "original_message": user_message,
-                "detected_intent": intent
-            }
+            response_event = AIResponseEvent(
+                type=EVENT_TYPE_AI_RESPONSE,
+                text=ai_response,
+                original_message=user_message,
+                detected_intent=intent
+            )
             await self.publisher.publish(response_event)
         except Exception as e:
             print(f"Error processing AI request: {e}")
-            error_event: dict = {
-                "type": "ai_response",
-                "text": f"Error processing request: {str(e)}"
-            }
+            error_event = AIResponseEvent(
+                type=EVENT_TYPE_AI_RESPONSE,
+                text=f"Error processing request: {str(e)}"
+            )
             await self.publisher.publish(error_event)
 
 class AIEventConsumer(EventConsumer):
@@ -423,7 +487,7 @@ async def get_index():
     return FileResponse("client.html")
 
 
-def parse_message_event(websocket: WebSocket, user_id: str, sender: str, message: str) -> dict:
+def parse_message_event(websocket: WebSocket, user_id: str, sender: str, message: str) -> UserMessageEvent | AIRequestEvent:
     """Parse incoming message and determine event type"""
     data: dict[str, str] = json.loads(message)
     msg_type: str = data.get("type", "message").strip()
@@ -431,21 +495,21 @@ def parse_message_event(websocket: WebSocket, user_id: str, sender: str, message
     
     # Check if message is an AI request
     if text.startswith("/AIBot"):
-        return {
-            "type": "ai_request",
-            "sender_ws": websocket,
-            "user_id": user_id,
-            "sender": sender,
-            "text": text.replace("/AIBot", "").strip()
-        }
+        return AIRequestEvent(
+            type=EVENT_TYPE_AI_REQUEST,
+            sender_ws=websocket,
+            user_id=user_id,
+            sender=sender,
+            text=text.replace("/AIBot", "").strip()
+        )
     else:
-        return {
-            "type": "user_message",
-            "sender_ws": websocket,
-            "user_id": user_id,
-            "sender": sender,
-            "text": text
-        }
+        return UserMessageEvent(
+            type=EVENT_TYPE_USER_MESSAGE,
+            sender_ws=websocket,
+            user_id=user_id,
+            sender=sender,
+            text=text
+        )
 
 
 async def process_message(websocket: WebSocket, user_id: str, sender: str, message: str) -> None:

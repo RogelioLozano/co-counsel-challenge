@@ -21,6 +21,44 @@
             background: white;
             box-shadow: 0 0 10px rgba(0,0,0,0.1);
         }
+        .login-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            gap: 20px;
+        }
+        .login-screen h1 {
+            color: #333;
+        }
+        .login-screen p {
+            color: #666;
+            text-align: center;
+        }
+        .login-screen input {
+            width: 100%;
+            max-width: 300px;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .login-screen button {
+            padding: 12px 30px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .login-screen button:hover { background: #1976D2; }
+        .chat-screen {
+            display: none;
+            flex-direction: column;
+            height: 100%;
+        }
         #messages {
             flex: 1;
             overflow-y: auto;
@@ -66,15 +104,32 @@
         }
         .connected { background: #d4edda; color: #155724; }
         .disconnected { background: #f8d7da; color: #721c24; }
+        .user-info {
+            padding: 10px 15px;
+            background: #f5f5f5;
+            border-bottom: 1px solid #ddd;
+            font-size: 12px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="status disconnected" id="status">Disconnected</div>
-        <div id="messages"></div>
-        <div class="input-area">
-            <input type="text" id="messageInput" placeholder="Type a message..." />
-            <button onclick="sendMessage()">Send</button>
+        <div class="login-screen" id="loginScreen">
+            <h1>Chat</h1>
+            <p>Enter your username to join or resume your chat</p>
+            <input type="text" id="usernameInput" placeholder="Enter your username" />
+            <button onclick="login()">Join Chat</button>
+        </div>
+
+        <div class="chat-screen" id="chatScreen">
+            <div class="status disconnected" id="status">Disconnected</div>
+            <div class="user-info" id="userInfo"></div>
+            <div id="messages"></div>
+            <div class="input-area">
+                <input type="text" id="messageInput" placeholder="Type a message... (or /AIBot for AI)" />
+                <button onclick="sendMessage()">Send</button>
+            </div>
         </div>
     </div>
 
@@ -82,27 +137,74 @@
         const messagesDiv = document.getElementById('messages');
         const inputField = document.getElementById('messageInput');
         const statusDiv = document.getElementById('status');
+        const userInfoDiv = document.getElementById('userInfo');
+        const loginScreen = document.getElementById('loginScreen');
+        const chatScreen = document.getElementById('chatScreen');
+        const usernameInput = document.getElementById('usernameInput');
+        
         let ws = null;
-        let userName = `User_${Math.floor(Math.random() * 1000)}`;
+        let userName = localStorage.getItem('chat_username') || '';
+
+        function login() {
+            const username = usernameInput.value.trim();
+            if (!username) {
+                alert('Please enter a username');
+                return;
+            }
+            
+            userName = username;
+            localStorage.setItem('chat_username', userName);
+            connect();
+        }
 
         function connect() {
-            ws = new WebSocket('ws://localhost:8765/ws');
+            // Connect with username as query parameter
+            const wsUrl = `ws://localhost:8765/ws?username=${encodeURIComponent(userName)}`;
+            ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {
-                statusDiv.textContent = 'Connected';
-                statusDiv.className = 'status connected';
                 console.log('Connected to server');
             };
             
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                displayMessage(data.sender, data.text, false);
+                
+                if (data.type === 'error') {
+                    alert('Error: ' + data.message);
+                } else if (data.type === 'connected') {
+                    // Connection established with auth
+                    loginScreen.style.display = 'none';
+                    chatScreen.style.display = 'flex';
+                    statusDiv.textContent = 'Connected';
+                    statusDiv.className = 'status connected';
+                    userInfoDiv.textContent = `User: ${data.username}`;
+                    console.log('Connected as:', data.username);
+                } else if (data.type === 'history') {
+                    // Display chat history
+                    messagesDiv.innerHTML = '';
+                    for (const msg of data.messages) {
+                        displayMessage(msg.sender, msg.text, msg.sender === userName);
+                    }
+                    console.log(`Chat history loaded: ${data.count} messages`);
+                } else if (data.sender) {
+                    // Regular message broadcast (has sender field)
+                    displayMessage(data.sender, data.text, data.sender === userName);
+                }
             };
             
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 statusDiv.textContent = 'Disconnected';
                 statusDiv.className = 'status disconnected';
-                console.log('Disconnected from server');
+                
+                // Handle close codes
+                if (event.code === 1008) {
+                    // Policy violation - authentication failed
+                    alert('Connection rejected: ' + event.reason);
+                    console.log('Auth failed:', event.reason);
+                    return; // Don't reconnect
+                }
+                
+                console.log('Disconnected from server (code: ' + event.code + ')');
                 setTimeout(connect, 3000); // Reconnect after 3s
             };
             
@@ -115,8 +217,13 @@
             const text = inputField.value.trim();
             if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
             
-            displayMessage(userName, text, true);
-            ws.send(JSON.stringify({ sender: userName, text: text }));
+            // Don't display /AIBot messages locally as "own" since they will be echoed back by the server
+            if (!text.startsWith('/AIBot')) {
+                displayMessage(userName, text, true);
+            }
+            
+            // Send message - simple JSON with just text field
+            ws.send(JSON.stringify({ text: text }));
             inputField.value = '';
         }
 
@@ -132,7 +239,15 @@
             if (e.key === 'Enter') sendMessage();
         });
 
-        connect();
+        usernameInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') login();
+        });
+
+        // Auto-login if username in localStorage
+        if (userName) {
+            usernameInput.value = userName;
+            login();
+        }
     </script>
 </body>
 </html>

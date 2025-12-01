@@ -186,7 +186,7 @@ graph TB
     end
     
     subgraph "Event-Driven Pipeline"
-        PARSER["🔍 Message Parser<br/>JSON → Event Dataclass<br/>UserMessageEvent | AIRequestEvent"]
+        PARSER["🔍 Message Parser<br/>JSON → Event Dataclass<br/>UserMessageEvent or AIRequestEvent"]
         PUBLISHER["📤 EventPublisher<br/>Dataclass → Dict<br/>asyncio.Queue.put()"]
         QUEUE["📦 asyncio.Queue<br/>Thread-safe async queue<br/>Decouples producers/consumers"]
         CONSUMER["🔄 AIEventConsumer<br/>Continuous event loop<br/>Route by event.type"]
@@ -215,14 +215,14 @@ graph TB
     WS --> HANDLER
     HANDLER -->|Create Event| PARSER
     PARSER -->|Typed Event| PUBLISHER
-    PUBLISHER -->|Dict + WebSocket ref| QUEUE
+    PUBLISHER -->|Dict and WebSocket ref| QUEUE
     QUEUE -->|Dict Event| CONSUMER
     CONSUMER -->|Route| HANDLERS
     CONSUMER -->|AI Request| AGENT
     AGENT -->|AI Response Event| PUBLISHER
     HANDLERS -->|Save| DB_CLASS
     HANDLERS -->|Broadcast| BROADCAST
-    BROADCAST -->|WebSocket.send_text()| CLIENT
+    BROADCAST -->|Send to clients| CLIENT
     DB_CLASS -->|SQL| SQLITE
     MODELS -.->|Used by| PARSER
     MODELS -.->|Used by| HANDLERS

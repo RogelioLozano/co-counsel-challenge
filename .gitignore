@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Database files (created fresh for each development environment)
+*.db
+*.sqlite
+*.sqlite3
+chat_history.db
+chat.db

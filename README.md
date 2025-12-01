@@ -33,6 +33,17 @@ uv run server.py
 The WebSocket server will start on `ws://localhost:8765/ws`
 The Frontend client page is served on `http://localhost:8765/`
 
+### Database Initialization
+
+The SQLite database is **created automatically on first run**. Database files (`.db`, `.sqlite`, etc.) are not committed to the repository - each developer gets a fresh database for their local environment. This ensures:
+
+- **Clean development environment** - No stale data from other developers
+- **Schema consistency** - Database is initialized with the latest schema
+- **Test isolation** - Each test run can start with a clean slate
+- **No merge conflicts** - Database state doesn't create git conflicts
+
+When you first run `server.py`, it will automatically create the `chat_history.db` file if it doesn't exist.
+
 ## Usage
 
 1. Open `client.html` directly in your browser (file:// protocol) or open http://localhost:8765/

@@ -6,7 +6,8 @@ from fastapi.responses import FileResponse
 import uvicorn
 
 from database.chat_database import ChatDatabase
-from events.publisher import EventPublisher, AIEventConsumer
+from events.publisher import EventPublisher
+from events.consumer import AIEventConsumer
 from ai.agent import MockedAIAgent
 from websocket.handler import handle_websocket_connection
 from websocket.connection_manager import ConnectionManager

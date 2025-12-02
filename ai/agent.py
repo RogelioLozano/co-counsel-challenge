@@ -3,6 +3,7 @@ import asyncio
 
 from domain.constants import EVENT_TYPE_AI_RESPONSE
 from domain.models import AIResponseEvent
+from events.publisher import EventPublisher
 
 
 class MockedAIAgent:
@@ -32,7 +33,7 @@ class MockedAIAgent:
         }
     }
     
-    def __init__(self, publisher) -> None:
+    def __init__(self, publisher: EventPublisher) -> None:
         self.publisher = publisher
     
     def detect_intent(self, message: str) -> str:

@@ -2,7 +2,7 @@
 import json
 from fastapi import WebSocket, WebSocketDisconnect
 
-from domain.constants import EVENT_TYPE_AI_REQUEST, EVENT_TYPE_USER_MESSAGE
+from domain.constants import EVENT_TYPE_AI_REQUEST, EVENT_TYPE_USER_MESSAGE, CONVERSATION_DEFAULT
 from domain.models import UserMessageEvent, AIRequestEvent
 
 
@@ -57,7 +57,7 @@ async def handle_websocket_connection(websocket: WebSocket, db, publisher, conne
         user_id = await db.get_or_create_user(username)
         
         # Add user to default conversation
-        await db.add_user_to_conversation(user_id, "default")
+        await db.add_user_to_conversation(user_id, CONVERSATION_DEFAULT)
         
         connected_clients.add(websocket)
         print(f"User '{username}' (ID: {user_id}) connected. Total clients: {len(connected_clients)}")
@@ -70,7 +70,7 @@ async def handle_websocket_connection(websocket: WebSocket, db, publisher, conne
         }))
         
         # Send full conversation history (all messages from all users)
-        history = await db.get_conversation_history("default")
+        history = await db.get_conversation_history(CONVERSATION_DEFAULT)
         await websocket.send_text(json.dumps({
             "type": "history",
             "messages": history,

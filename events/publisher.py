@@ -78,7 +78,7 @@ class EventConsumer:
         if user_id and sender:
             message = Message(
                 sender_id=user_id,
-                sender_name=sender,
+                sender=sender,
                 text=text,
                 msg_type=MESSAGE_TYPE_USER,
                 conversation_id=CONVERSATION_DEFAULT
@@ -107,7 +107,7 @@ class EventConsumer:
             ai_user_id = await self.db.get_or_create_user("AIBot")
             message = Message(
                 sender_id=ai_user_id,
-                sender_name="AIBot",
+                sender="AIBot",
                 text=text,
                 msg_type=MESSAGE_TYPE_AI_RESPONSE,
                 conversation_id=CONVERSATION_DEFAULT

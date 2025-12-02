@@ -82,7 +82,7 @@ server.py                    # Main entry point with FastAPI app and lifespan
 
 **Core Models (dataclasses with type safety):**
 - `User` - user_id, username
-- `Message` - sender_id, sender_name, text, msg_type, conversation_id
+- `Message` - sender_id, sender, text, msg_type, conversation_id
 - `UserMessageEvent` - type, user_id, sender, text, sender_ws
 - `AIRequestEvent` - type, user_id, sender, text, sender_ws
 - `AIResponseEvent` - type, text, original_message, detected_intent
@@ -111,7 +111,7 @@ server.py                    # Main entry point with FastAPI app and lifespan
 - `id` - Auto-incrementing primary key
 - `conversation_id` - Which conversation the message belongs to
 - `sender_id` - FK to users table
-- `sender_name` - Username of the sender
+- `sender_name` - Username of the sender (column name in DB, represented as `sender` in Message domain model)
 - `text` - Message content
 - `message_type` - 'user_message' or 'ai_response'
 - `created_at` - Timestamp

@@ -3,7 +3,7 @@ import uuid
 import aiosqlite
 
 from domain.constants import CONVERSATION_DEFAULT
-from domain.models import Message
+from domain.models import Message, HistoryMessage
 
 # Database path
 DB_PATH = "chat_history.db"
@@ -141,7 +141,7 @@ class ChatDatabase:
         assert self.conn is not None
         await self.conn.execute(
             "INSERT INTO messages (conversation_id, sender_id, sender_name, text, message_type) VALUES (?, ?, ?, ?, ?)",
-            (message.conversation_id, message.sender_id, message.sender_name, message.text, message.msg_type)
+            (message.conversation_id, message.sender_id, message.sender, message.text, message.msg_type)
         )
         # Update conversation updated_at timestamp
         await self.conn.execute(
@@ -150,7 +150,7 @@ class ChatDatabase:
         )
         await self.conn.commit()
     
-    async def get_conversation_history(self, conversation_id: str = CONVERSATION_DEFAULT, limit: int = 50) -> list[dict]:
+    async def get_conversation_history(self, conversation_id: str = CONVERSATION_DEFAULT, limit: int = 50) -> list[HistoryMessage]:
         """Get chat history for a conversation (all messages regardless of user)"""
         assert self.conn is not None
         cursor = await self.conn.execute(
@@ -159,11 +159,11 @@ class ChatDatabase:
         )
         rows = await cursor.fetchall()
         return [
-            {
-                "sender": row[0],
-                "text": row[1],
-                "type": row[2],
-                "timestamp": row[3]
-            }
+            HistoryMessage(
+                sender=row[0],
+                text=row[1],
+                msg_type=row[2],
+                timestamp=row[3]
+            )
             for row in rows
         ]

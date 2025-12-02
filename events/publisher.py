@@ -1,10 +1,10 @@
 """Event publishing and consuming for the chat system"""
-import json
 import asyncio
 from fastapi import WebSocket
 
 from domain.constants import EVENT_TYPE_USER_MESSAGE, EVENT_TYPE_AI_REQUEST, EVENT_TYPE_AI_RESPONSE, MESSAGE_TYPE_USER, MESSAGE_TYPE_AI_RESPONSE, CONVERSATION_DEFAULT
 from domain.models import Message, UserMessageEvent, AIRequestEvent, AIResponseEvent
+from websocket.connection_manager import ConnectionManager
 
 
 class EventPublisher:
@@ -47,10 +47,11 @@ class EventPublisher:
 class EventConsumer:
     """Consumes events from the queue and handles them"""
     
-    def __init__(self, queue: asyncio.Queue[dict], db, connected_clients: set[WebSocket]) -> None:
+    def __init__(self, queue: asyncio.Queue[dict], db, ai_agent, connection_manager: ConnectionManager) -> None:
         self.queue = queue
         self.db = db
-        self.connected_clients = connected_clients
+        self.ai_agent = ai_agent
+        self.connection_manager = connection_manager
     
     async def consume(self) -> None:
         """Continuously consume and process events"""
@@ -85,19 +86,17 @@ class EventConsumer:
             )
             await self.db.save_message(message)
         
-        broadcast_message: str = json.dumps({
+        broadcast_message = {
             "sender": sender,
             "text": text
-        })
+        }
         
         # Send to all connected clients except sender
         sender_ws: WebSocket | None = event.get("sender_ws")
-        for client in self.connected_clients:
-            if client != sender_ws:
-                try:
-                    await client.send_text(broadcast_message)
-                except Exception as e:
-                    print(f"Error sending message: {e}")
+        if sender_ws:
+            await self.connection_manager.broadcast_except(broadcast_message, sender_ws)
+        else:
+            await self.connection_manager.broadcast(broadcast_message)
     
     async def handle_ai_response(self, event: dict) -> None:
         """Handle AI response events and save to database"""
@@ -116,25 +115,20 @@ class EventConsumer:
         except Exception as e:
             print(f"Error saving AI response to database: {e}")
         
-        broadcast_message: str = json.dumps({
+        broadcast_message = {
             "sender": "AIBot",
             "text": event.get("text", "")
-        })
+        }
         
         # Send to all connected clients
-        for client in self.connected_clients:
-            try:
-                await client.send_text(broadcast_message)
-            except Exception as e:
-                print(f"Error sending AI response: {e}")
+        await self.connection_manager.broadcast(broadcast_message)
 
 
 class AIEventConsumer(EventConsumer):
     """Extended consumer that also handles AI requests"""
     
-    def __init__(self, queue: asyncio.Queue[dict], db, ai_agent, connected_clients: set[WebSocket]) -> None:
-        super().__init__(queue, db, connected_clients)
-        self.ai_agent = ai_agent
+    def __init__(self, queue: asyncio.Queue[dict], db, ai_agent, connection_manager: ConnectionManager) -> None:
+        super().__init__(queue, db, ai_agent, connection_manager)
     
     async def handle_event(self, event: dict) -> None:
         """Route event to appropriate handler, including AI requests"""

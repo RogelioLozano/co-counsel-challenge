@@ -64,25 +64,27 @@ When you first run `server.py`, it will automatically create the `chat_history.d
 ### Directory Structure
 
 ```
-server.py                    # Main entry point with FastAPI app and lifespan
+server.py                          # Main entry point with FastAPI app and lifespan
 ├── domain/
-│   ├── constants.py        # Type aliases and constants (MESSAGE_TYPE_*, EVENT_TYPE_*)
-│   └── models.py           # Domain models: User, Message, and event dataclasses
+│   ├── constants.py              # Type aliases and constants (MESSAGE_TYPE_*, EVENT_TYPE_*)
+│   └── models.py                 # Domain models: User, Message, HistoryMessage, and event dataclasses
 ├── database/
-│   └── chat_database.py    # SQLite persistence layer
+│   └── chat_database.py          # SQLite persistence layer
 ├── events/
-│   └── publisher.py        # EventPublisher, EventConsumer, AIEventConsumer
+│   └── publisher.py              # EventPublisher, EventConsumer, AIEventConsumer
 ├── ai/
-│   └── agent.py            # MockedAIAgent with intent detection
+│   └── agent.py                  # MockedAIAgent with intent detection
 └── websocket/
-    └── handler.py          # WebSocket protocol handling and message parsing
+    ├── handler.py                # WebSocket protocol handling and message parsing
+    └── connection_manager.py     # ConnectionManager for lifecycle and broadcasting
 ```
 
 ### Domain Models
 
 **Core Models (dataclasses with type safety):**
 - `User` - user_id, username
-- `Message` - sender_id, sender, text, msg_type, conversation_id
+- `Message` - sender_id, sender, text, msg_type, conversation_id (application layer)
+- `HistoryMessage` - sender, text, msg_type, timestamp (persistence layer, composition-based)
 - `UserMessageEvent` - type, user_id, sender, text, sender_ws
 - `AIRequestEvent` - type, user_id, sender, text, sender_ws
 - `AIResponseEvent` - type, text, original_message, detected_intent
@@ -125,7 +127,7 @@ graph TD
     
     B -->|Username Validation| C{"Valid?"}
     C -->|No| D["❌ Close Code 1008<br/>Policy Violation"]
-    C -->|Yes| E["✅ Accept Connection"]
+    C -->|Yes| E["✅ Accept Connection<br/>connection_manager.connect()"]
     
     E --> F["📋 Send History<br/>to Client"]
     E --> G["⏳ Listen for Messages"]
@@ -155,14 +157,15 @@ graph TD
     
     S --> T["📊 SQLite<br/>chat.db<br/>- users<br/>- messages<br/>- conversations<br/>- participants"]
     
-    P --> U["📡 Broadcast<br/>connected_clients.send_text"]
+    P --> U["📡 ConnectionManager<br/>Broadcast to all clients<br/>except sender"]
     R --> U
     
-    U --> V["🔔 All Connected Clients<br/>Receive Message"]
+    U["📡 ConnectionManager<br/>websocket/connection_manager.py<br/>- Track active connections<br/>- Send to all or except sender<br/>- Error recovery"] --> V["🔔 All Connected Clients<br/>Receive Message"]
     V --> A
     
     style A fill:#e1f5ff
     style B fill:#fff3e0
+    style E fill:#fff3e0
     style J fill:#f3e5f5
     style K fill:#f3e5f5
     style M fill:#e8f5e9
@@ -174,14 +177,15 @@ graph TD
 
 **Data Flow Steps:**
 1. User connects with `?username=Alice` query parameter
-2. WebSocket handler validates username, accepts connection, sends history
+2. WebSocket handler validates username, accepts connection via `ConnectionManager`, sends history
 3. User sends JSON message → parsed into UserMessageEvent or AIRequestEvent
 4. EventPublisher converts event to dict and adds to asyncio.Queue
 5. AIEventConsumer continuously processes events from queue:
-   - **user_message**: Save to DB, broadcast to all clients
+   - **user_message**: Save to DB, broadcast to all clients (except sender)
    - **ai_request**: Pass to MockedAIAgent, which publishes AIResponseEvent back to queue
    - **ai_response**: Save to DB as AIBot, broadcast to all clients
-6. All connected clients receive the broadcast and display the message
+6. ConnectionManager sends broadcasts with automatic error recovery and cleanup
+7. All connected clients receive the broadcast and display the message
 
 ### System Architecture Layers
 
@@ -194,6 +198,7 @@ graph TB
     subgraph "Protocol Layer"
         WS["📡 WebSocket Endpoint<br/>@app.websocket'/ws'<br/>Query Param Auth"]
         HANDLER["🔌 Connection Handler<br/>websocket/handler.py<br/>parse_message_event()"]
+        CONNMGR["🔗 ConnectionManager<br/>websocket/connection_manager.py<br/>Lifecycle + Broadcasting"]
     end
     
     subgraph "Event-Driven Pipeline"
@@ -206,7 +211,6 @@ graph TB
     subgraph "Business Logic Layer"
         HANDLERS["🧠 Event Handlers<br/>handle_user_message()<br/>handle_ai_response()"]
         AGENT["🤖 MockedAIAgent<br/>Intent detection<br/>Response generation"]
-        BROADCAST["📢 Message Broadcaster<br/>Send to connected_clients<br/>Exclude sender for user_msg"]
     end
     
     subgraph "Data Access Layer"
@@ -226,14 +230,14 @@ graph TB
     WS --> HANDLER
     HANDLER -->|Create Event| PARSER
     PARSER -->|Typed Event| PUBLISHER
-    PUBLISHER -->|Dict and WebSocket ref| QUEUE
+    PUBLISHER -->|Dict| QUEUE
     QUEUE -->|Dict Event| CONSUMER
     CONSUMER -->|Route| HANDLERS
     CONSUMER -->|AI Request| AGENT
     AGENT -->|AI Response Event| PUBLISHER
     HANDLERS -->|Save| DB_CLASS
-    HANDLERS -->|Broadcast| BROADCAST
-    BROADCAST -->|Send to clients| CLIENT
+    HANDLERS -->|Broadcast| CONNMGR
+    CONNMGR -->|Send to clients| CLIENT
     DB_CLASS -->|SQL| SQLITE
     MODELS -.->|Used by| PARSER
     MODELS -.->|Used by| HANDLERS
@@ -242,13 +246,13 @@ graph TB
     style CLIENT fill:#e1f5ff
     style WS fill:#fff3e0
     style HANDLER fill:#fff3e0
+    style CONNMGR fill:#ffe0b2
     style PARSER fill:#f3e5f5
     style PUBLISHER fill:#f3e5f5
     style QUEUE fill:#e8f5e9
     style CONSUMER fill:#e8f5e9
     style HANDLERS fill:#fce4ec
     style AGENT fill:#fce4ec
-    style BROADCAST fill:#fff3e0
     style DB_CLASS fill:#ede7f6
     style SQLITE fill:#ede7f6
     style MODELS fill:#f1f8e9
@@ -257,9 +261,9 @@ graph TB
 
 **Layer Responsibilities:**
 - **Presentation**: Browser UI and user interaction
-- **Protocol**: WebSocket handshake, authentication, message encoding/decoding
+- **Protocol**: WebSocket handshake, authentication, message encoding/decoding, connection lifecycle management
 - **Event-Driven**: Async message queue for decoupling, event routing
-- **Business Logic**: Processing rules, AI intent matching, message broadcasting
+- **Business Logic**: Processing rules, AI intent matching
 - **Data Access**: Database abstraction, async SQL execution
 - **Persistence**: SQLite storage with indexes for performance
 - **Domain**: Typed models and constants (framework-agnostic)
@@ -272,6 +276,17 @@ graph TB
 - **Chat History**: New users receive full conversation history from all users
 - **Persistence**: User added to database on first connection
 - **No passwords**: Currently username-only; can be extended with tokens
+
+### Connection Management (Production Pattern)
+
+**ConnectionManager** (`websocket/connection_manager.py`) handles WebSocket lifecycle:
+
+- **Connection Lifecycle**: `connect()` accepts connections, `disconnect()` removes them
+- **Broadcasting**: 
+  - `broadcast()` - Send message to all connected clients
+  - `broadcast_except()` - Send to all clients except one (e.g., exclude sender)
+- **Error Recovery**: Automatically removes failed connections during broadcast
+- **Connection Counting**: `get_connection_count()` for monitoring and logging
 
 
 ### AI Agent

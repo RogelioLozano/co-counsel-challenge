@@ -4,6 +4,9 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from domain.constants import EVENT_TYPE_AI_REQUEST, EVENT_TYPE_USER_MESSAGE, CONVERSATION_DEFAULT
 from domain.models import UserMessageEvent, AIRequestEvent
+from database.chat_database import ChatDatabase
+from events.publisher import EventPublisher
+from websocket.connection_manager import ConnectionManager
 
 
 def parse_message_event(websocket: WebSocket, user_id: str, sender: str, message: str) -> UserMessageEvent | AIRequestEvent:
@@ -37,7 +40,7 @@ async def process_message(websocket: WebSocket, user_id: str, sender: str, messa
     await publisher.publish(event)
 
 
-async def handle_websocket_connection(websocket: WebSocket, db, publisher, connected_clients: set[WebSocket]) -> None:
+async def handle_websocket_connection(websocket: WebSocket, db: ChatDatabase, publisher: EventPublisher, connection_manager: ConnectionManager) -> None:
     """Handle WebSocket connection with username from query parameter"""
     username: str = ""
     
@@ -50,8 +53,8 @@ async def handle_websocket_connection(websocket: WebSocket, db, publisher, conne
             await websocket.close(code=1008, reason="Username required. Connect with: ws://localhost:8765/ws?username=YourName")
             return
         
-        # Now accept the authenticated connection
-        await websocket.accept()
+        # Accept connection and add to manager
+        await connection_manager.connect(websocket)
         
         # Get or create user
         user_id = await db.get_or_create_user(username)
@@ -59,8 +62,7 @@ async def handle_websocket_connection(websocket: WebSocket, db, publisher, conne
         # Add user to default conversation
         await db.add_user_to_conversation(user_id, CONVERSATION_DEFAULT)
         
-        connected_clients.add(websocket)
-        print(f"User '{username}' (ID: {user_id}) connected. Total clients: {len(connected_clients)}")
+        print(f"User '{username}' (ID: {user_id}) connected. Total clients: {connection_manager.get_connection_count()}")
         
         # Send connection success
         await websocket.send_text(json.dumps({
@@ -102,8 +104,8 @@ async def handle_websocket_connection(websocket: WebSocket, db, publisher, conne
                     print(f"Error sending error message: {e}")
                     
     except WebSocketDisconnect:
-        print(f"Client '{username}' disconnected. Total clients: {len(connected_clients)}")
-        connected_clients.discard(websocket)
+        print(f"Client '{username}' disconnected. Total clients: {connection_manager.get_connection_count() - 1}")
+        connection_manager.disconnect(websocket)
     except Exception as e:
         print(f"WebSocket error: {e}")
-        connected_clients.discard(websocket)
+        connection_manager.disconnect(websocket)

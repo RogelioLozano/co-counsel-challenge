@@ -72,7 +72,7 @@ async def handle_websocket_connection(websocket: WebSocket, db: ChatDatabase, pu
         }))
         
         # Send full conversation history (all messages from all users)
-        history = await db.get_conversation_history(CONVERSATION_DEFAULT)
+        history = await db.get_conversation_history_dict(CONVERSATION_DEFAULT)
         await websocket.send_text(json.dumps({
             "type": "history",
             "messages": history,

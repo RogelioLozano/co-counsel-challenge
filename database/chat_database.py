@@ -167,3 +167,16 @@ class ChatDatabase:
             )
             for row in rows
         ]
+    
+    async def get_conversation_history_dict(self, conversation_id: str = CONVERSATION_DEFAULT, limit: int = 50) -> list[dict]:
+        """Get chat history as JSON-serializable dictionaries"""
+        history = await self.get_conversation_history(conversation_id, limit)
+        return [
+            {
+                "sender": msg.sender,
+                "text": msg.text,
+                "msg_type": msg.msg_type,
+                "timestamp": msg.timestamp
+            }
+            for msg in history
+        ]

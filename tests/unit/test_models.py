@@ -1,6 +1,5 @@
 """Unit tests for domain models"""
 import pytest
-from datetime import datetime
 
 from domain.models import (
     User,
@@ -10,9 +9,6 @@ from domain.models import (
     AIRequestEvent,
 )
 from domain.constants import (
-    ConversationId,
-    MessageType,
-    EventType,
     MESSAGE_TYPE_USER,
     MESSAGE_TYPE_AI_RESPONSE,
     MESSAGE_TYPE_AI_REQUEST,

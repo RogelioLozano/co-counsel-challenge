@@ -1,7 +1,7 @@
 """Unit tests for EventConsumer and AIEventConsumer"""
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 from events.consumer import EventConsumer, AIEventConsumer
 from domain.models import Message
@@ -11,7 +11,6 @@ from domain.constants import (
     EVENT_TYPE_AI_RESPONSE,
     MESSAGE_TYPE_USER,
     MESSAGE_TYPE_AI_RESPONSE,
-    CONVERSATION_DEFAULT,
 )
 
 

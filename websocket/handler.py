@@ -7,6 +7,7 @@ from domain.models import UserMessageEvent, AIRequestEvent
 from database.chat_database import ChatDatabase
 from events.publisher import EventPublisher
 from websocket.connection_manager import ConnectionManager
+from websocket.rate_limiter import rate_limiter
 
 
 def parse_message_event(websocket: WebSocket, user_id: str, sender: str, message: str) -> UserMessageEvent | AIRequestEvent:
@@ -87,6 +88,19 @@ async def handle_websocket_connection(websocket: WebSocket, db: ChatDatabase, pu
                 text: str = msg_data.get("text", "").strip()
                 
                 if not text:
+                    continue
+                
+                # Check rate limit BEFORE processing
+                is_limited, error_msg = rate_limiter.is_rate_limited(user_id)
+                if is_limited:
+                    try:
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "code": "RATE_LIMITED",
+                            "message": error_msg
+                        }))
+                    except Exception as e:
+                        print(f"Error sending rate limit message: {e}")
                     continue
                 
                 # Process and publish message

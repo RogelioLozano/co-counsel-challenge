@@ -331,93 +331,38 @@ graph TB
 
 ## Testing
 
+**127 unit tests** with pytest and pytest-asyncio.
+
 ### Running Tests
 
-Run all unit tests with pytest:
 ```bash
+# Run all tests
 uv run pytest tests/unit/ -v
-```
 
-Run tests with coverage:
-```bash
+# Run with coverage
 uv run pytest tests/unit/ --cov=domain --cov=events --cov=websocket --cov=ai --cov=database
-```
 
-Run specific test file:
-```bash
+# Run specific test file
 uv run pytest tests/unit/test_models.py -v
-```
 
-Run tests matching a pattern:
-```bash
+# Run tests matching pattern
 uv run pytest -k "test_broadcast" -v
-```
-
-### Test Structure
-
-```
-tests/
-├── unit/                          # Unit tests for individual modules
-│   ├── test_models.py             # Domain model tests (19 tests)
-│   ├── test_agent.py              # MockedAIAgent tests (27 tests)
-│   ├── test_connection_manager.py # ConnectionManager tests (24 tests)
-│   ├── test_publisher.py          # EventPublisher tests (20 tests)
-│   ├── test_consumer.py           # EventConsumer tests (19 tests)
-│   └── __init__.py
-├── integration/                   # Integration tests (placeholder)
-├── fixtures/                      # Test data and factories (placeholder)
-├── conftest.py                    # Shared pytest fixtures
-└── __init__.py
-
-pytest.ini                          # Pytest configuration
 ```
 
 ### Test Coverage
 
-**109 total unit tests** organized by module:
+| Module | Tests | Coverage |
+|--------|-------|----------|
+| Domain Models | 19 | User, Message, HistoryMessage, Events |
+| MockedAIAgent | 27 | Intent detection, response generation |
+| ConnectionManager | 24 | Connection lifecycle, broadcast |
+| EventPublisher | 20 | Event serialization, queue publishing |
+| EventConsumer | 19 | Event routing, persistence |
+| RateLimiter | 18 | Rate limiting, token bucket |
 
-| Module | Tests | Focus |
-|--------|-------|-------|
-| **test_models.py** | 19 | User, Message, HistoryMessage, Events, Constants |
-| **test_agent.py** | 27 | Intent detection, response generation, async processing |
-| **test_connection_manager.py** | 24 | Connection lifecycle, broadcast, error recovery |
-| **test_publisher.py** | 20 | Event serialization, queue publishing, type preservation |
-| **test_consumer.py** | 19 | Event routing, DB persistence, error handling |
+## Rate Limiting
 
-### Test Infrastructure
-
-**conftest.py** provides shared fixtures:
-
-```python
-@pytest.fixture
-async def event_queue()                # asyncio.Queue for event pipeline
-@pytest.fixture
-async def in_memory_db()              # SQLite in-memory for isolation
-@pytest.fixture
-def connection_manager()               # ConnectionManager instance
-@pytest.fixture
-async def event_publisher()            # EventPublisher with mocked queue
-@pytest.fixture
-async def mocked_ai_agent()            # MockedAIAgent with mocked publisher
-@pytest.fixture
-def mock_websocket()                   # AsyncMock WebSocket
-```
-
-**pytest.ini** configuration:
-
-- `asyncio_mode = auto` - Automatic async test support
-- Test markers: `@pytest.mark.unit`, `@pytest.mark.integration`, `@pytest.mark.slow`, `@pytest.mark.async`
-- Verbose output with short tracebacks
-- Python path includes current directory for imports
-
-### Testing Best Practices
-
-1. **Isolation**: Each test uses fresh fixtures (in-memory DB, mock objects)
-2. **No Side Effects**: Tests don't depend on execution order
-3. **Async Support**: `@pytest.mark.asyncio` for async test functions
-4. **Mock External Dependencies**: WebSockets, database, AI agent all mocked
-5. **Edge Cases**: Tests cover missing data, errors, boundary conditions
-6. **Type Safety**: Tests verify event dataclass field names and types
-7. **Error Handling**: Tests verify graceful error recovery and logging
-
-
+Protects against spam with per-user token bucket algorithm:
+- **Limit**: 3 messages per 1 second
+- **Cooldown**: 2 seconds after exceeding limit
+- **Per-user**: Each user tracked independently

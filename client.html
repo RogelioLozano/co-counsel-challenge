@@ -217,10 +217,8 @@
             const text = inputField.value.trim();
             if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
             
-            // Don't display /AIBot messages locally as "own" since they will be echoed back by the server
-            if (!text.startsWith('/AIBot')) {
-                displayMessage(userName, text, true);
-            }
+            // Display message immediately for both regular and /AIBot messages
+            displayMessage(userName, text, true);
             
             // Send message - simple JSON with just text field
             ws.send(JSON.stringify({ text: text }));
